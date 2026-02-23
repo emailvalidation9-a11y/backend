@@ -1,0 +1,45 @@
+# ──────────────────────────────────────────────
+#  SpamGuard Backend - .gitignore
+# ──────────────────────────────────────────────
+
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.staging
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS generated files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build outputs
+dist/
+build/
+
+# Uploads (user-generated content)
+uploads/
+!uploads/.gitkeep
+
+# Coverage
+coverage/
+
+# Temp files
+tmp/
+temp/
+*.tmp
