@@ -4,6 +4,7 @@ const { AppError } = require('../utils/errorHandler');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const sendEmail = require('../utils/email');
+const emailTemplates = require('../utils/emailTemplates');
 const { logActivity } = require('./accountController');
 
 // @desc    Register user
@@ -19,9 +20,11 @@ const register = async (req, res, next) => {
       return next(new AppError('User already exists with this email', 400));
     }
 
-    // Generate email verification token
+    // Generate email verification token (expires after VERIFICATION_LINK_EXPIRE_HOURS, default 24)
     const verificationToken = crypto.randomBytes(32).toString('hex');
     const hashedToken = crypto.createHash('sha256').update(verificationToken).digest('hex');
+    const verificationExpireHours = parseInt(process.env.VERIFICATION_LINK_EXPIRE_HOURS, 10) || 24;
+    const verificationExpires = new Date(Date.now() + verificationExpireHours * 60 * 60 * 1000);
 
     // Create user (password is hashed by the pre-save hook in the User model)
     const newUser = await User.create({
@@ -38,6 +41,7 @@ const register = async (req, res, next) => {
       role: 'user',
       email_verified: false,
       verification_token: hashedToken,
+      verification_expires: verificationExpires,
       is_active: true,
       last_login: new Date()
     });
@@ -52,20 +56,7 @@ const register = async (req, res, next) => {
         email: newUser.email,
         subject: 'SpamGuard - Verify Your Email Address',
         message: `Welcome to SpamGuard, ${newUser.name}! Please verify your email by visiting: ${verifyURL}`,
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-            <h1 style="color: #6366f1; text-align: center;">Welcome to SpamGuard!</h1>
-            <p style="font-size: 16px; color: #333;">Hi ${newUser.name},</p>
-            <p style="font-size: 16px; color: #333;">Thanks for signing up! Please verify your email address by clicking the button below:</p>
-            <div style="text-align: center; margin: 30px 0;">
-              <a href="${verifyURL}" style="background-color: #6366f1; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">Verify My Email</a>
-            </div>
-            <p style="font-size: 14px; color: #666;">Or copy and paste this link into your browser:</p>
-            <p style="font-size: 14px; color: #6366f1; word-break: break-all;">${verifyURL}</p>
-            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-            <p style="font-size: 12px; color: #999; text-align: center;">If you didn't create an account, you can safely ignore this email.</p>
-          </div>
-        `
+        html: emailTemplates.verifyEmail({ name: newUser.name, verifyURL, isWelcome: true, expiryHours: verificationExpireHours }),
       });
     } catch (err) {
       console.log('Error sending verification email', err);
@@ -347,10 +338,11 @@ const forgotPassword = async (req, res, next) => {
       return next(new AppError('There is no user with that email address.', 404));
     }
 
-    // Create reset token
+    // Create reset token (expires after PASSWORD_RESET_EXPIRE_MINUTES, default 10)
     const resetToken = crypto.randomBytes(32).toString('hex');
     user.password_reset_token = crypto.createHash('sha256').update(resetToken).digest('hex');
-    user.password_reset_expires = Date.now() + 10 * 60 * 1000; // 10 mins
+    const resetExpireMinutes = parseInt(process.env.PASSWORD_RESET_EXPIRE_MINUTES, 10) || 10;
+    user.password_reset_expires = new Date(Date.now() + resetExpireMinutes * 60 * 1000);
     await user.save({ validateBeforeSave: false });
 
     // Send email
@@ -360,9 +352,9 @@ const forgotPassword = async (req, res, next) => {
     try {
       await sendEmail({
         email: user.email,
-        subject: 'Your password reset token (valid for 10 min)',
+        subject: 'SpamGuard - Reset Your Password',
         message,
-        html: `<h1>Password Reset</h1><p>Forgot your password? <a href="${resetURL}">Click here to reset it.</a></p><p>If you didn't request this, please ignore this email.</p>`
+        html: emailTemplates.passwordResetRequest({ resetURL, expiryMinutes: resetExpireMinutes }),
       });
 
       res.status(200).json({
@@ -389,11 +381,11 @@ const resetPassword = async (req, res, next) => {
 
     const user = await User.findOne({
       password_reset_token: hashedToken,
-      password_reset_expires: { $gt: Date.now() }
+      password_reset_expires: { $gt: new Date() }
     });
 
     if (!user) {
-      return next(new AppError('Token is invalid or has expired', 400));
+      return next(new AppError('This link is invalid or has expired. Request a new password reset.', 400));
     }
 
     user.password = req.body.password;
@@ -407,9 +399,9 @@ const resetPassword = async (req, res, next) => {
     try {
       await sendEmail({
         email: user.email,
-        subject: 'Password Reset Successful',
+        subject: 'SpamGuard - Password Reset Successful',
         message: 'Your password has been reset successfully.',
-        html: '<h1>Success</h1><p>Your password has been reset successfully.</p>'
+        html: emailTemplates.passwordResetSuccess(),
       });
     } catch (err) {
       console.log('Error sending reset confirmation', err);
@@ -434,14 +426,18 @@ const verifyEmail = async (req, res, next) => {
   try {
     const hashedToken = crypto.createHash('sha256').update(req.params.token).digest('hex');
 
-    const user = await User.findOne({ verification_token: hashedToken });
+    const user = await User.findOne({
+      verification_token: hashedToken,
+      verification_expires: { $gt: new Date() }
+    });
 
     if (!user) {
-      return next(new AppError('Invalid or expired verification token', 400));
+      return next(new AppError('This verification link is invalid or has expired. Request a new one from your account.', 400));
     }
 
     user.email_verified = true;
     user.verification_token = undefined;
+    user.verification_expires = undefined;
     await user.save({ validateBeforeSave: false });
 
     const token = generateToken(user._id);
@@ -477,11 +473,12 @@ const resendVerification = async (req, res, next) => {
       });
     }
 
-    // Generate new verification token
+    // Generate new verification token (expires after VERIFICATION_LINK_EXPIRE_HOURS, default 24)
     const verificationToken = crypto.randomBytes(32).toString('hex');
     const hashedToken = crypto.createHash('sha256').update(verificationToken).digest('hex');
-
+    const verificationExpireHours = parseInt(process.env.VERIFICATION_LINK_EXPIRE_HOURS, 10) || 24;
     user.verification_token = hashedToken;
+    user.verification_expires = new Date(Date.now() + verificationExpireHours * 60 * 60 * 1000);
     await user.save({ validateBeforeSave: false });
 
     // Send verification email
@@ -491,20 +488,7 @@ const resendVerification = async (req, res, next) => {
         email: user.email,
         subject: 'SpamGuard - Verify Your Email Address',
         message: `Please verify your email by visiting: ${verifyURL}`,
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-            <h1 style="color: #6366f1; text-align: center;">Verify Your Email</h1>
-            <p style="font-size: 16px; color: #333;">Hi ${user.name},</p>
-            <p style="font-size: 16px; color: #333;">Please verify your email address by clicking the button below:</p>
-            <div style="text-align: center; margin: 30px 0;">
-              <a href="${verifyURL}" style="background-color: #6366f1; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">Verify My Email</a>
-            </div>
-            <p style="font-size: 14px; color: #666;">Or copy and paste this link into your browser:</p>
-            <p style="font-size: 14px; color: #6366f1; word-break: break-all;">${verifyURL}</p>
-            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-            <p style="font-size: 12px; color: #999; text-align: center;">If you didn't create an account, you can safely ignore this email.</p>
-          </div>
-        `
+        html: emailTemplates.verifyEmail({ name: user.name, verifyURL, isWelcome: false, expiryHours: verificationExpireHours }),
       });
     } catch (err) {
       console.log('Error sending verification email', err);

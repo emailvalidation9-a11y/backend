@@ -61,6 +61,7 @@ const userSchema = new mongoose.Schema({
     default: false
   },
   verification_token: String,
+  verification_expires: Date,
   password_reset_token: String,
   password_reset_expires: Date,
   last_login: Date,
@@ -106,6 +107,7 @@ userSchema.methods.getPublicProfile = function () {
   const userObject = this.toObject();
   delete userObject.password;
   delete userObject.verification_token;
+  delete userObject.verification_expires;
   delete userObject.password_reset_token;
   delete userObject.password_reset_expires;
   return userObject;

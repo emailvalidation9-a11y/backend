@@ -5,6 +5,7 @@ const User = require('../models/User');
 const validationService = require('../services/validationService');
 const FormData = require('form-data');
 const sendEmail = require('../utils/email');
+const emailTemplates = require('../utils/emailTemplates');
 const { logActivity, recordUsage, checkLowCredits, sendWebhook } = require('./accountController');
 const { uploadValidationResults } = require('../utils/cloudinary');
 
@@ -303,9 +304,9 @@ const getJob = async (req, res, next) => {
                     const downloadUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/history`;
                     await sendEmail({
                         email: user.email,
-                        subject: 'Bulk Validation Job Completed',
+                        subject: 'SpamGuard - Bulk Validation Job Completed',
                         message: `Your bulk validation job has finished. It processed ${engineData.total} emails. Download results here: ${downloadUrl}`,
-                        html: `<h1>Job Completed</h1><p>Your bulk validation job has finished successfully. It processed <strong>${engineData.total}</strong> emails.</p><p><a href="${downloadUrl}">Click here to visit your dashboard and download the results.</a></p>`
+                        html: emailTemplates.bulkJobCompleted({ name: user.name, total: engineData.total, downloadUrl }),
                     });
                 } catch (err) {
                     console.log('Error sending job completion email', err);

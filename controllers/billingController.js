@@ -2,6 +2,7 @@ const PricingPlan = require('../models/PricingPlan');
 const Transaction = require('../models/Transaction');
 const { AppError } = require('../utils/errorHandler');
 const sendEmail = require('../utils/email');
+const emailTemplates = require('../utils/emailTemplates');
 
 const getPlans = async (req, res, next) => {
     try {
@@ -84,9 +85,12 @@ const createCheckout = async (req, res, next) => {
         try {
             await sendEmail({
                 email: req.user.email,
-                subject: `Subscription Confirmed: ${existingPlan ? existingPlan.name : plan} Plan`,
+                subject: `SpamGuard - Subscription Confirmed: ${existingPlan ? existingPlan.name : plan} Plan`,
                 message: `Thank you for subscribing to the ${existingPlan ? existingPlan.name : plan} plan.`,
-                html: `<h1>Subscription Confirmed</h1><p>Thank you for subscribing to the <strong>${existingPlan ? existingPlan.name : plan}</strong> plan. Your account has been credited with ${creditsLimit} nodes.</p>`
+                html: emailTemplates.subscriptionConfirmed({
+                    planName: existingPlan ? existingPlan.name : plan,
+                    creditsLimit,
+                }),
             });
         } catch (err) {
             console.log('Error sending subscription email', err);
@@ -129,9 +133,12 @@ const purchaseCredits = async (req, res, next) => {
         try {
             await sendEmail({
                 email: req.user.email,
-                subject: `Credit Purchase Confirmed: ${creditPack.name}`,
+                subject: `SpamGuard - Credit Purchase Confirmed: ${creditPack.name}`,
                 message: `Thank you for purchasing the ${creditPack.name} package.`,
-                html: `<h1>Purchase Confirmed</h1><p>Thank you for purchasing the <strong>${creditPack.name}</strong> package! ${addedCredits} nodes have been added to your account.</p>`
+                html: emailTemplates.creditPurchaseConfirmed({
+                    packName: creditPack.name,
+                    addedCredits,
+                }),
             });
         } catch (err) {
             console.log('Error sending credit purchase email', err);

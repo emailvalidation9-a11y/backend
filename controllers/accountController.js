@@ -6,6 +6,7 @@ const ValidationJob = require('../models/ValidationJob');
 const ApiKey = require('../models/ApiKey');
 const { AppError } = require('../utils/errorHandler');
 const sendEmail = require('../utils/email');
+const emailTemplates = require('../utils/emailTemplates');
 
 // ─── ACTIVITY LOG ────────────────────────────────────────────
 
@@ -129,22 +130,14 @@ const checkLowCredits = async (user) => {
         if (user.credits <= threshold && user.credits > 0) {
             await sendEmail({
                 email: user.email,
-                subject: 'SpamGuard - Low Credit Alert ⚠️',
+                subject: 'SpamGuard - Low Credit Alert',
                 message: `Your credits are running low! You have ${user.credits} credits remaining out of ${user.plan.credits_limit}.`,
-                html: `
-                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-                        <h1 style="color: #f59e0b; text-align: center;">⚠️ Low Credit Alert</h1>
-                        <p style="font-size: 16px; color: #333;">Hi ${user.name},</p>
-                        <p style="font-size: 16px; color: #333;">Your validation credits are running low.</p>
-                        <div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 20px; text-align: center; margin: 20px 0;">
-                            <p style="font-size: 32px; font-weight: bold; color: #f59e0b; margin: 0;">${user.credits}</p>
-                            <p style="color: #92400e; margin: 5px 0 0;">credits remaining out of ${user.plan.credits_limit}</p>
-                        </div>
-                        <div style="text-align: center; margin: 30px 0;">
-                            <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/billing" style="background-color: #6366f1; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: bold;">Buy More Credits</a>
-                        </div>
-                    </div>
-                `
+                html: emailTemplates.lowCredits({
+                    name: user.name,
+                    credits: user.credits,
+                    creditsLimit: user.plan.credits_limit,
+                    billingUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/billing`,
+                }),
             });
         }
     } catch (err) {
@@ -251,14 +244,7 @@ const deleteAccount = async (req, res, next) => {
                 email: user.email,
                 subject: 'SpamGuard - Account Deleted',
                 message: `Your SpamGuard account has been successfully deleted. We're sorry to see you go.`,
-                html: `
-                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-                        <h1 style="color: #6366f1; text-align: center;">Account Deleted</h1>
-                        <p style="font-size: 16px; color: #333;">Hi ${user.name},</p>
-                        <p style="font-size: 16px; color: #333;">Your SpamGuard account and all associated data have been permanently deleted as requested.</p>
-                        <p style="font-size: 14px; color: #666;">If you didn't request this, please contact our support team immediately.</p>
-                    </div>
-                `
+                html: emailTemplates.accountDeleted({ name: user.name }),
             });
         } catch (err) {
             console.log('Error sending account deletion email:', err.message);
