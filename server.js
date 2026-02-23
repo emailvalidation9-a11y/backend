@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 const dotenv = require('dotenv');
 const mongoose = require('mongoose');
 const authRoutes = require('./routes/auth');
@@ -14,20 +15,30 @@ const serversRoutes = require('./routes/servers');
 const pricingRoutes = require('./routes/pricing');
 const accountRoutes = require('./routes/account');
 const uploadRoutes = require('./routes/upload');
+const healthRoutes = require('./routes/health');
 const healthCheckService = require('./services/healthCheckService');
 const { AppError, sendErrorDev, sendErrorProd } = require('./utils/errorHandler');
+const { validateEnv } = require('./config/env');
+const requestId = require('./middleware/requestId');
+const { generalLimiter } = require('./middleware/rateLimiter');
 
 dotenv.config();
+validateEnv();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware
+// Security and base middleware
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({
   origin: [process.env.FRONTEND_URL || 'http://localhost:5173', 'http://localhost:5174'],
-  credentials: true
+  credentials: true,
 }));
-app.use(express.json());
+app.use(requestId);
+app.use(express.json({ limit: '1mb' }));
+
+// Rate limit all /api (health is exempt inside generalLimiter)
+app.use('/api', generalLimiter);
 
 // MongoDB Connection & Server Start Lifecycle
 console.log('Attempting MongoDB Connection...');
@@ -56,7 +67,8 @@ app.get('/', (req, res) => {
   res.json({ message: 'SpamGuard API is running' });
 });
 
-// API Routes
+// API Routes (health first for probes)
+app.use('/api/health', healthRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/billing', billingRoutes);
