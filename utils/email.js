@@ -1,7 +1,18 @@
 const nodemailer = require('nodemailer');
 
 const sendEmail = async (options) => {
-    // 1) Create a transporter
+    // 1) Fallback if no email configuration is provided
+    if (!process.env.EMAIL_HOST && !process.env.SMTP_HOST) {
+        console.warn('⚠️ SMTP Configuration missing. Falling back to console logging for email.');
+        console.log(`\n========= DEV EMAIL =========`);
+        console.log(`To: ${options.email}`);
+        console.log(`Subject: ${options.subject}`);
+        console.log(`Message: \n${options.message}`);
+        console.log(`=============================\n`);
+        return;
+    }
+
+    // 2) Create a transporter
     const transporter = nodemailer.createTransport({
         host: process.env.EMAIL_HOST,
         port: process.env.EMAIL_PORT,
