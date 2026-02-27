@@ -15,8 +15,8 @@ router.get('/setup/status', setupLimiter, authController.setupStatus);
 router.post('/setup', setupLimiter, stripUnknownFields(['name', 'email', 'password']), validateSetup, validate, authController.setupAdmin);
 
 // Public routes (rate limited to prevent abuse)
-router.post('/register', authLimiter, stripUnknownFields(['name', 'email', 'password']), validateRegister, validate, authController.register);
-router.post('/login', authLimiter, stripUnknownFields(['email', 'password']), validateLogin, validate, authController.login);
+router.post('/register', authLimiter, stripUnknownFields(['name', 'email', 'password', 'turnstileToken']), validateRegister, validate, authController.register);
+router.post('/login', authLimiter, stripUnknownFields(['email', 'password', 'turnstileToken']), validateLogin, validate, authController.login);
 router.post('/forgot-password', authLimiter, stripUnknownFields(['email']), validateForgotPassword, validate, authController.forgotPassword);
 router.post('/reset-password/:token', strictLimiter, stripUnknownFields(['password']), validateResetPassword, validate, authController.resetPassword);
 router.get('/verify-email/:token', strictLimiter, authController.verifyEmail);

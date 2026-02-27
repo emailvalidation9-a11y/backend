@@ -12,7 +12,25 @@ const { logActivity } = require('./accountController');
 // @access  Public
 const register = async (req, res, next) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, turnstileToken } = req.body;
+
+    if (process.env.CLOUDFLARE_TURNSTILE_SECRET) {
+      if (!turnstileToken) {
+        return next(new AppError('CAPTCHA verification is required', 400));
+      }
+      const formData = new URLSearchParams();
+      formData.append('secret', process.env.CLOUDFLARE_TURNSTILE_SECRET);
+      formData.append('response', turnstileToken);
+
+      const cfRes = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+        method: 'POST',
+        body: formData
+      });
+      const cfData = await cfRes.json();
+      if (!cfData.success) {
+        return next(new AppError('CAPTCHA verification failed', 400));
+      }
+    }
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -82,7 +100,25 @@ const register = async (req, res, next) => {
 // @access  Public
 const login = async (req, res, next) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, turnstileToken } = req.body;
+
+    if (process.env.CLOUDFLARE_TURNSTILE_SECRET) {
+      if (!turnstileToken) {
+        return next(new AppError('CAPTCHA verification is required', 400));
+      }
+      const formData = new URLSearchParams();
+      formData.append('secret', process.env.CLOUDFLARE_TURNSTILE_SECRET);
+      formData.append('response', turnstileToken);
+
+      const cfRes = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+        method: 'POST',
+        body: formData
+      });
+      const cfData = await cfRes.json();
+      if (!cfData.success) {
+        return next(new AppError('CAPTCHA verification failed', 400));
+      }
+    }
 
     // Check if email and password exist
     if (!email || !password) {
