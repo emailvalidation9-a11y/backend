@@ -31,7 +31,7 @@ const logActivity = async (userId, action, details = {}, req = null) => {
 const getActivityLog = async (req, res, next) => {
     try {
         const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 20;
+        const limit = Math.min(parseInt(req.query.limit) || 20, 100);
         const skip = (page - 1) * limit;
 
         const logs = await ActivityLog.find({ user_id: req.user.id })
@@ -130,7 +130,7 @@ const checkLowCredits = async (user) => {
         if (user.credits <= threshold && user.credits > 0) {
             await sendEmail({
                 email: user.email,
-                subject: 'SpamGuard - Low Credit Alert',
+                subject: 'TrueValidator - Low Credit Alert',
                 message: `Your credits are running low! You have ${user.credits} credits remaining out of ${user.plan.credits_limit}.`,
                 html: emailTemplates.lowCredits({
                     name: user.name,
@@ -184,6 +184,13 @@ const exportResultsCSV = async (req, res, next) => {
         const engineData = await response.json();
         const results = engineData.results || [];
 
+        // CSV injection protection: prefix dangerous chars with a single quote
+        const csvSafe = (val) => {
+            const s = String(val ?? '').replace(/"/g, '""');
+            if (/^[=+\-@\t\r]/.test(s)) return `"'${s}"`;
+            return `"${s}"`;
+        };
+
         // Build CSV
         const headers = ['email', 'status', 'score', 'reason', 'is_disposable', 'is_role_based', 'mx_found', 'smtp_check'];
         const csvRows = [headers.join(',')];
@@ -199,7 +206,7 @@ const exportResultsCSV = async (req, res, next) => {
                 r.mx_found ?? r.has_mx ?? '',
                 r.smtp_check ?? ''
             ];
-            csvRows.push(row.join(','));
+            csvRows.push(row.map(csvSafe).join(','));
         });
 
         const csvContent = csvRows.join('\n');
@@ -242,8 +249,8 @@ const deleteAccount = async (req, res, next) => {
         try {
             await sendEmail({
                 email: user.email,
-                subject: 'SpamGuard - Account Deleted',
-                message: `Your SpamGuard account has been successfully deleted. We're sorry to see you go.`,
+                subject: 'TrueValidator - Account Deleted',
+                message: `Your TrueValidator account has been successfully deleted. We're sorry to see you go.`,
                 html: emailTemplates.accountDeleted({ name: user.name }),
             });
         } catch (err) {
@@ -264,9 +271,32 @@ const deleteAccount = async (req, res, next) => {
 
 // ─── WEBHOOK NOTIFICATIONS ──────────────────────────────────
 
+// SSRF protection for webhook URLs
+const WEBHOOK_BLOCKED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0', '[::1]', 'metadata.google.internal'];
+const WEBHOOK_PRIVATE_IPS = [
+    /^10\./, /^172\.(1[6-9]|2\d|3[01])\./, /^192\.168\./,
+    /^169\.254\./, /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./,
+];
+const isSafeWebhookUrl = (urlStr) => {
+    try {
+        const parsed = new URL(urlStr);
+        if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+        const hostname = parsed.hostname.toLowerCase();
+        if (WEBHOOK_BLOCKED_HOSTS.includes(hostname)) return false;
+        if (WEBHOOK_PRIVATE_IPS.some(re => re.test(hostname))) return false;
+        return true;
+    } catch {
+        return false;
+    }
+};
+
 // Helper to send webhook notification
 const sendWebhook = async (webhookUrl, payload) => {
     if (!webhookUrl) return;
+    if (!isSafeWebhookUrl(webhookUrl)) {
+        console.log('Webhook URL blocked (SSRF protection):', webhookUrl);
+        return;
+    }
     try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000);

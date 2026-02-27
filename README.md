@@ -1,4 +1,4 @@
-# SpamGuard Backend - Complete Auth System
+# TrueValidator Backend - Complete Auth System
 
 ## Features Implemented
 
@@ -73,7 +73,7 @@ backend/
 2. **Environment Variables** (in `.env`):
    ```
    PORT=5000
-   MONGODB_URI=mongodb://localhost:27017/spamguard
+   MONGODB_URI=mongodb://localhost:27017/truevalidator
    JWT_SECRET=your-super-secret-jwt-key
    JWT_EXPIRES_IN=7d
    FRONTEND_URL=http://localhost:5173

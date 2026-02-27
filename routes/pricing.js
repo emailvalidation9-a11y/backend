@@ -2,10 +2,11 @@ const express = require('express');
 const router = express.Router();
 const ctrl = require('../controllers/pricingController');
 const { protect, restrictTo } = require('../middleware/auth');
+const { validateCouponCode, validate, stripUnknownFields } = require('../utils/validation');
 
 // Public routes
 router.get('/public', ctrl.getPublicPlans);
-router.post('/coupon/validate', protect, ctrl.validateCoupon);
+router.post('/coupon/validate', protect, stripUnknownFields(['code', 'planId']), validateCouponCode, validate, ctrl.validateCoupon);
 
 // Admin routes
 router.use(protect);

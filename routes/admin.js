@@ -2,6 +2,11 @@ const express = require('express');
 const router = express.Router();
 const ctrl = require('../controllers/adminController');
 const { protect, restrictTo } = require('../middleware/auth');
+const {
+  validateUpdateUser, validateAdjustCredits, validateSetCredits,
+  validateResetUserPassword, validateBulkOperation,
+  validate, stripUnknownFields,
+} = require('../utils/validation');
 
 router.use(protect);
 router.use(restrictTo('admin'));
@@ -13,14 +18,14 @@ router.get('/stats', ctrl.getStats);
 router.get('/users', ctrl.getUsers);
 router.get('/users/export', ctrl.exportUsers);
 router.get('/users/:id', ctrl.getUser);
-router.put('/users/:id', ctrl.updateUser);
+router.put('/users/:id', stripUnknownFields(['name', 'email', 'role', 'credits', 'plan', 'is_active']), validateUpdateUser, validate, ctrl.updateUser);
 router.delete('/users/:id', ctrl.deleteUser);
-router.post('/users/:id/credits/adjust', ctrl.adjustCredits);
-router.post('/users/:id/credits/set', ctrl.setCredits);
-router.post('/users/:id/reset-password', ctrl.resetUserPassword);
+router.post('/users/:id/credits/adjust', stripUnknownFields(['amount', 'reason']), validateAdjustCredits, validate, ctrl.adjustCredits);
+router.post('/users/:id/credits/set', stripUnknownFields(['credits', 'reason']), validateSetCredits, validate, ctrl.setCredits);
+router.post('/users/:id/reset-password', stripUnknownFields(['newPassword']), validateResetUserPassword, validate, ctrl.resetUserPassword);
 
 // Bulk operations
-router.post('/users/bulk', ctrl.bulkOperation);
+router.post('/users/bulk', stripUnknownFields(['ids', 'action', 'amount', 'plan']), validateBulkOperation, validate, ctrl.bulkOperation);
 
 // API Keys
 router.get('/api-keys', ctrl.getApiKeys);

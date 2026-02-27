@@ -41,17 +41,21 @@ app.use(express.json({ limit: '1mb' }));
 app.use('/api', generalLimiter);
 
 // MongoDB Connection & Server Start Lifecycle
+console.log('Environment variables check:');
+console.log('MONGODB_URI:', process.env.MONGODB_URI ? 'SET' : 'MISSING');
+console.log('JWT_SECRET:', process.env.JWT_SECRET ? 'SET' : 'MISSING');
+console.log('VALIDATION_ENGINE_URL:', process.env.VALIDATION_ENGINE_URL ? 'SET' : 'Not set (using default)');
+
 console.log('Attempting MongoDB Connection...');
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/spamguard')
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/truevalidator')
   .then(async () => {
     console.log('✅ MongoDB connected successfully');
 
     // Start server
     app.listen(PORT, async () => {
-      console.log(`Server running on port ${PORT}`);
-      console.log(`Demo credentials:`);
-      console.log(`Email: ${process.env.DEMO_EMAIL}`);
-      console.log(`Password: ${process.env.DEMO_PASSWORD}`);
+      console.log(`✅ Server running on port ${PORT}`);
+      console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`Demo user: ${process.env.DEMO_EMAIL ? 'configured' : 'not configured'}`);
 
       // Create demo user safely after connection
       await createDemoUser();
@@ -64,7 +68,7 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/spamguard
 
 // Routes
 app.get('/', (req, res) => {
-  res.json({ message: 'SpamGuard API is running' });
+  res.json({ message: 'TrueValidator API is running' });
 });
 
 // API Routes (health first for probes)

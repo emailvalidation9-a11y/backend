@@ -46,11 +46,10 @@ const blogPostSchema = new mongoose.Schema({
 });
 
 // Pre-save to auto-generate pub date if published
-blogPostSchema.pre('save', function (next) {
+blogPostSchema.pre('save', function () {
     if (this.isModified('status') && this.status === 'published' && !this.publishedAt) {
         this.publishedAt = Date.now();
     }
-    next();
 });
 
 module.exports = mongoose.model('BlogPost', blogPostSchema);

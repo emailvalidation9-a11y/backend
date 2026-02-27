@@ -1,10 +1,10 @@
 /**
- * Professional HTML email templates for SpamGuard.
+ * Professional HTML email templates for TrueValidator.
  * Uses table-based layout and inline styles for maximum email client compatibility.
  */
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
-const BRAND = { name: 'SpamGuard', primary: '#4f46e5', primaryDark: '#4338ca', text: '#374151', muted: '#6b7280', border: '#e5e7eb' };
+const BRAND = { name: 'TrueValidator', primary: '#4f46e5', primaryDark: '#4338ca', text: '#374151', muted: '#6b7280', border: '#e5e7eb' };
 
 /**
  * Wraps content in a consistent layout: header, body, footer.
@@ -92,7 +92,7 @@ function linkFallback(label, url) {
 // ─── Template builders ─────────────────────────────────────────────────────
 
 function verifyEmail({ name, verifyURL, isWelcome = true, expiryHours = 24 }) {
-  const title = isWelcome ? 'Welcome to SpamGuard' : 'Verify your email';
+  const title = isWelcome ? 'Welcome to TrueValidator' : 'Verify your email';
   const intro = isWelcome
     ? `Hi ${name}, thanks for signing up. Please verify your email address by clicking the button below.`
     : `Hi ${name}, please verify your email address by clicking the button below.`;
@@ -124,7 +124,7 @@ function lowCredits({ name, credits, creditsLimit, billingUrl }) {
 }
 
 function accountDeleted({ name }) {
-  const content = h1('Account deleted') + p(`Hi ${name},`) + p('Your SpamGuard account and all associated data have been permanently deleted as requested.') + p('If you didn\'t request this, please contact our support team immediately.', 'font-size: 14px; color: ' + BRAND.muted + ';');
+  const content = h1('Account deleted') + p(`Hi ${name},`) + p('Your TrueValidator account and all associated data have been permanently deleted as requested.') + p('If you didn\'t request this, please contact our support team immediately.', 'font-size: 14px; color: ' + BRAND.muted + ';');
   return wrapBody(content);
 }
 

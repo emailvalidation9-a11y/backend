@@ -3,6 +3,15 @@ const Transaction = require('../models/Transaction');
 const { AppError } = require('../utils/errorHandler');
 const sendEmail = require('../utils/email');
 const emailTemplates = require('../utils/emailTemplates');
+const Razorpay = require('razorpay');
+const crypto = require('crypto');
+
+const getRazorpayInstance = () => {
+    return new Razorpay({
+        key_id: process.env.RAZORPAY_KEY_ID || 'dummy_id',
+        key_secret: process.env.RAZORPAY_KEY_SECRET || 'dummy_secret'
+    });
+};
 
 const getPlans = async (req, res, next) => {
     try {
@@ -29,7 +38,6 @@ const getPlans = async (req, res, next) => {
             });
         }
 
-        // Formatter for frontend consistency
         const plansObj = {};
         plans.forEach(p => plansObj[p.slug] = p);
 
@@ -47,58 +55,57 @@ const getPlans = async (req, res, next) => {
 
 const createCheckout = async (req, res, next) => {
     try {
-        const { plan, success_url, cancel_url } = req.body;
+        const { plan, success_url, cancel_url, currency } = req.body;
 
-        // Simulating payment gateway logic
         const existingPlan = await PricingPlan.findOne({ slug: plan });
         if (!existingPlan && plan !== 'free') {
             return next(new AppError('Plan not found', 404));
         }
 
-        // Test payment complete -> Update User
-        const creditsLimit = existingPlan ? existingPlan.credits : 100;
-        req.user.plan = {
-            name: plan,
-            status: 'active',
-            credits_limit: creditsLimit,
-            renewal_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-        };
-        req.user.credits = creditsLimit;
+        // Handle free plan automatically
+        if (plan === 'free' || (existingPlan && existingPlan.price === 0)) {
+            const creditsLimit = existingPlan ? existingPlan.credits : 100;
+            req.user.plan = {
+                name: plan,
+                status: 'active',
+                credits_limit: creditsLimit,
+                renewal_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+            };
+            req.user.credits = creditsLimit;
+            await req.user.save();
 
-        if (!req.user.stripe) {
-            req.user.stripe = {};
-        }
-        req.user.stripe.subscription_id = 'test_sub_' + Date.now();
-        req.user.stripe.status = 'active';
-        await req.user.save();
-
-        await Transaction.create({
-            user_id: req.user._id,
-            type: 'subscription',
-            amount: { paid: existingPlan ? existingPlan.price * 100 : 0, currency: 'usd' },
-            credits: { added: creditsLimit, deducted: 0, before: 0, after: creditsLimit },
-            description: `Subscribed to ${existingPlan ? existingPlan.name : plan} Plan (Test Gateway)`,
-            status: 'success'
-        });
-
-        // Send Purchase Email
-        try {
-            await sendEmail({
-                email: req.user.email,
-                subject: `SpamGuard - Subscription Confirmed: ${existingPlan ? existingPlan.name : plan} Plan`,
-                message: `Thank you for subscribing to the ${existingPlan ? existingPlan.name : plan} plan.`,
-                html: emailTemplates.subscriptionConfirmed({
-                    planName: existingPlan ? existingPlan.name : plan,
-                    creditsLimit,
-                }),
+            return res.status(200).json({
+                status: 'success',
+                data: { success: true, message: 'Free plan activated', isFree: true }
             });
-        } catch (err) {
-            console.log('Error sending subscription email', err);
         }
+
+        const razorpay = getRazorpayInstance();
+
+        const activeCurrency = currency === 'INR' ? 'INR' : 'USD';
+        const exchangeRate = activeCurrency === 'INR' ? 83 : 1;
+
+        const options = {
+            amount: Math.round(existingPlan.price * exchangeRate * 100), // convert to smallest unit
+            currency: activeCurrency,
+            receipt: `r_${req.user._id.toString().slice(-6)}_${Date.now()}`,
+            notes: {
+                userId: req.user._id.toString(),
+                type: 'subscription',
+                planSlug: plan
+            }
+        };
+
+        const order = await razorpay.orders.create(options);
 
         res.status(200).json({
             status: 'success',
-            data: { checkout_url: success_url || `${process.env.FRONTEND_URL}/dashboard` }
+            data: {
+                orderId: order.id,
+                amount: order.amount,
+                currency: order.currency,
+                key: process.env.RAZORPAY_KEY_ID || 'dummy_id'
+            }
         });
     } catch (error) {
         next(error);
@@ -107,56 +114,148 @@ const createCheckout = async (req, res, next) => {
 
 const purchaseCredits = async (req, res, next) => {
     try {
-        const packageName = req.body.package;
-        const { success_url, cancel_url } = req.body;
+        const { package: packageName, currency } = req.body;
 
         const creditPack = await PricingPlan.findOne({ slug: packageName, type: 'credit_package' });
         if (!creditPack) {
             return next(new AppError('Credit package not found', 404));
         }
 
-        const addedCredits = creditPack.credits;
-        const currentCredits = req.user.credits || 0;
-        req.user.credits = currentCredits + addedCredits;
-        await req.user.save();
+        const razorpay = getRazorpayInstance();
 
-        await Transaction.create({
-            user_id: req.user._id,
-            type: 'one_time',
-            amount: { paid: creditPack.price * 100, currency: 'usd' },
-            credits: { added: addedCredits, deducted: 0, before: currentCredits, after: currentCredits + addedCredits },
-            description: `Purchased ${creditPack.name} (Test Gateway)`,
-            status: 'success'
-        });
+        const activeCurrency = currency === 'INR' ? 'INR' : 'USD';
+        const exchangeRate = activeCurrency === 'INR' ? 83 : 1;
 
-        // Send Purchase Email
-        try {
-            await sendEmail({
-                email: req.user.email,
-                subject: `SpamGuard - Credit Purchase Confirmed: ${creditPack.name}`,
-                message: `Thank you for purchasing the ${creditPack.name} package.`,
-                html: emailTemplates.creditPurchaseConfirmed({
-                    packName: creditPack.name,
-                    addedCredits,
-                }),
-            });
-        } catch (err) {
-            console.log('Error sending credit purchase email', err);
-        }
+        const options = {
+            amount: Math.round(creditPack.price * exchangeRate * 100),
+            currency: activeCurrency,
+            receipt: `r_${req.user._id.toString().slice(-6)}_${Date.now()}`,
+            notes: {
+                userId: req.user._id.toString(),
+                type: 'credit_package',
+                packageSlug: packageName
+            }
+        };
+
+        const order = await razorpay.orders.create(options);
 
         res.status(200).json({
             status: 'success',
-            data: { checkout_url: success_url || `${process.env.FRONTEND_URL}/dashboard` }
+            data: {
+                orderId: order.id,
+                amount: order.amount,
+                currency: order.currency,
+                key: process.env.RAZORPAY_KEY_ID || 'dummy_id'
+            }
         });
     } catch (error) {
         next(error);
     }
 };
 
+const verifyPayment = async (req, res, next) => {
+    try {
+        const { razorpay_order_id, razorpay_payment_id, razorpay_signature, type, slug, currency } = req.body;
+
+        const activeCurrency = currency === 'INR' ? 'INR' : 'USD';
+        const exchangeRate = activeCurrency === 'INR' ? 83 : 1;
+
+        const generated_signature = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET || 'dummy_secret')
+            .update(razorpay_order_id + "|" + razorpay_payment_id)
+            .digest('hex');
+
+        if (generated_signature !== razorpay_signature) {
+            return next(new AppError('Payment verification failed', 400));
+        }
+
+        if (type === 'subscription') {
+            const existingPlan = await PricingPlan.findOne({ slug: slug });
+            const creditsLimit = existingPlan ? existingPlan.credits : 100;
+            req.user.plan = {
+                name: slug,
+                status: 'active',
+                credits_limit: creditsLimit,
+                renewal_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+            };
+            req.user.credits = creditsLimit;
+
+            if (!req.user.razorpay) {
+                req.user.razorpay = {};
+            }
+            req.user.razorpay.subscriptionId = razorpay_order_id;
+            req.user.razorpay.status = 'active';
+            await req.user.save();
+
+            await Transaction.create({
+                user_id: req.user._id,
+                type: 'subscription',
+                amount: { paid: existingPlan ? existingPlan.price * exchangeRate * 100 : 0, currency: activeCurrency },
+                credits: { added: creditsLimit, deducted: 0, before: 0, after: creditsLimit },
+                description: `Subscribed to ${existingPlan ? existingPlan.name : slug} Plan`,
+                status: 'success',
+                razorpay: {
+                    order_id: razorpay_order_id,
+                    payment_id: razorpay_payment_id,
+                    signature: razorpay_signature
+                }
+            });
+
+            try {
+                await sendEmail({
+                    email: req.user.email,
+                    subject: `TrueValidator - Subscription Confirmed: ${existingPlan ? existingPlan.name : slug} Plan`,
+                    message: `Thank you for subscribing to the ${existingPlan ? existingPlan.name : slug} plan.`,
+                    html: emailTemplates.subscriptionConfirmed({
+                        planName: existingPlan ? existingPlan.name : slug,
+                        creditsLimit,
+                    }),
+                });
+            } catch (err) { }
+
+        } else if (type === 'credit_package') {
+            const creditPack = await PricingPlan.findOne({ slug: slug, type: 'credit_package' });
+            const addedCredits = creditPack ? creditPack.credits : 0;
+            const currentCredits = req.user.credits || 0;
+            req.user.credits = currentCredits + addedCredits;
+            await req.user.save();
+
+            await Transaction.create({
+                user_id: req.user._id,
+                type: 'one_time',
+                amount: { paid: creditPack ? creditPack.price * exchangeRate * 100 : 0, currency: activeCurrency },
+                credits: { added: addedCredits, deducted: 0, before: currentCredits, after: currentCredits + addedCredits },
+                description: `Purchased ${creditPack ? creditPack.name : slug} Batch`,
+                status: 'success',
+                razorpay: {
+                    order_id: razorpay_order_id,
+                    payment_id: razorpay_payment_id,
+                    signature: razorpay_signature
+                }
+            });
+
+            try {
+                await sendEmail({
+                    email: req.user.email,
+                    subject: `TrueValidator - Credit Purchase Confirmed: ${creditPack ? creditPack.name : slug}`,
+                    message: `Thank you for purchasing the ${creditPack ? creditPack.name : slug} package.`,
+                    html: emailTemplates.creditPurchaseConfirmed({
+                        packName: creditPack ? creditPack.name : slug,
+                        addedCredits,
+                    }),
+                });
+            } catch (err) { }
+        }
+
+        res.status(200).json({ status: 'success', message: 'Payment verified successfully' });
+    } catch (err) {
+        next(err);
+    }
+}
+
 const getTransactions = async (req, res, next) => {
     try {
         const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 10;
+        const limit = Math.min(parseInt(req.query.limit) || 10, 100);
         const skip = (page - 1) * limit;
 
         const [transactions, total] = await Promise.all([
@@ -185,5 +284,6 @@ module.exports = {
     getPlans,
     getTransactions,
     createCheckout,
-    purchaseCredits
+    purchaseCredits,
+    verifyPayment
 };

@@ -12,7 +12,7 @@ cloudinary.config({
  * Upload a file buffer to Cloudinary.
  * Works for images, CSVs, PDFs, and any raw file type.
  *
- * @param {Buffer} buffer - The file buffer
+ * @param {Buffer|ReadableStream} fileData - The file buffer or stream
  * @param {Object} options
  * @param {string} options.folder - Cloudinary folder (e.g. 'avatars', 'blog', 'results')
  * @param {string} [options.publicId] - Custom public ID (optional)
@@ -21,7 +21,7 @@ cloudinary.config({
  * @param {Object} [options.transformation] - Image transformation options
  * @returns {Promise<{url: string, secureUrl: string, publicId: string, format: string, bytes: number}>}
  */
-const uploadBuffer = (buffer, options = {}) => {
+const uploadBuffer = (fileData, options = {}) => {
     return new Promise((resolve, reject) => {
         const {
             folder = 'uploads',
@@ -32,7 +32,7 @@ const uploadBuffer = (buffer, options = {}) => {
         } = options;
 
         const uploadOptions = {
-            folder: `kimi/${folder}`,
+            folder: `truevalidator/${folder}`,
             resource_type: resourceType,
             use_filename: true,
             unique_filename: true,
@@ -45,7 +45,10 @@ const uploadBuffer = (buffer, options = {}) => {
         const uploadStream = cloudinary.uploader.upload_stream(
             uploadOptions,
             (error, result) => {
-                if (error) return reject(error);
+                if (error) {
+                    console.error("Cloudinary upload error:", error);
+                    return reject(error);
+                }
                 resolve({
                     url: result.url,
                     secureUrl: result.secure_url,
@@ -59,11 +62,16 @@ const uploadBuffer = (buffer, options = {}) => {
             }
         );
 
-        // Pipe the buffer into the upload stream
-        const readable = new Readable();
-        readable.push(buffer);
-        readable.push(null);
-        readable.pipe(uploadStream);
+        if (Buffer.isBuffer(fileData)) {
+            uploadStream.end(fileData);
+        } else if (typeof fileData === 'string') {
+            uploadStream.end(Buffer.from(fileData));
+        } else if (fileData && typeof fileData.pipe === 'function') {
+            fileData.pipe(uploadStream);
+        } else {
+            console.error('Invalid input format to Cloudinary uploadBuffer:', typeof fileData);
+            reject(new Error('Invalid input format: Expected Buffer, String, or Stream.'));
+        }
     });
 };
 
@@ -126,8 +134,8 @@ const uploadRawFile = async (buffer, options = {}) => {
  * Upload CSV validation results to Cloudinary.
  * Returns a permanent download URL.
  */
-const uploadValidationResults = async (csvBuffer, jobId) => {
-    return uploadBuffer(csvBuffer, {
+const uploadValidationResults = async (fileData, jobId) => {
+    return uploadBuffer(fileData, {
         folder: 'results',
         publicId: `job_${jobId}`,
         resourceType: 'raw',

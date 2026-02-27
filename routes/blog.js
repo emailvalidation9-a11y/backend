@@ -53,7 +53,8 @@ router.get('/admin/:id', protect, restrictTo('admin'), async (req, res, next) =>
 // Create new post (Admin)
 router.post('/', protect, restrictTo('admin'), async (req, res, next) => {
     try {
-        const newPost = await BlogPost.create(req.body);
+        const { title, slug, content, excerpt, coverImage, tags, category, status, publishedAt, metaTitle, metaDescription } = req.body;
+        const newPost = await BlogPost.create({ title, slug, content, excerpt, coverImage, tags, category, status, publishedAt, metaTitle, metaDescription });
         res.status(201).json({ status: 'success', data: { post: newPost } });
     } catch (err) {
         next(err);
@@ -63,7 +64,20 @@ router.post('/', protect, restrictTo('admin'), async (req, res, next) => {
 // Update post (Admin)
 router.put('/:id', protect, restrictTo('admin'), async (req, res, next) => {
     try {
-        const post = await BlogPost.findByIdAndUpdate(req.params.id, req.body, {
+        const { title, slug, content, excerpt, coverImage, tags, category, status, publishedAt, metaTitle, metaDescription } = req.body;
+        const allowedFields = {};
+        if (title !== undefined) allowedFields.title = title;
+        if (slug !== undefined) allowedFields.slug = slug;
+        if (content !== undefined) allowedFields.content = content;
+        if (excerpt !== undefined) allowedFields.excerpt = excerpt;
+        if (coverImage !== undefined) allowedFields.coverImage = coverImage;
+        if (tags !== undefined) allowedFields.tags = tags;
+        if (category !== undefined) allowedFields.category = category;
+        if (status !== undefined) allowedFields.status = status;
+        if (publishedAt !== undefined) allowedFields.publishedAt = publishedAt;
+        if (metaTitle !== undefined) allowedFields.metaTitle = metaTitle;
+        if (metaDescription !== undefined) allowedFields.metaDescription = metaDescription;
+        const post = await BlogPost.findByIdAndUpdate(req.params.id, allowedFields, {
             new: true,
             runValidators: true
         });

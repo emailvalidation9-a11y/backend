@@ -11,10 +11,10 @@ const transactionSchema = new mongoose.Schema({
         enum: ['subscription', 'one_time', 'refund', 'bonus', 'adjustment'],
         required: true
     },
-    stripe: {
-        payment_intent_id: String,
-        subscription_id: String,
-        invoice_id: String
+    razorpay: {
+        order_id: String,
+        payment_id: String,
+        signature: String
     },
     amount: {
         paid: { type: Number, required: true },

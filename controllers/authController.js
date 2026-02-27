@@ -54,8 +54,8 @@ const register = async (req, res, next) => {
     try {
       await sendEmail({
         email: newUser.email,
-        subject: 'SpamGuard - Verify Your Email Address',
-        message: `Welcome to SpamGuard, ${newUser.name}! Please verify your email by visiting: ${verifyURL}`,
+        subject: 'TrueValidator - Verify Your Email Address',
+        message: `Welcome to TrueValidator, ${newUser.name}! Please verify your email by visiting: ${verifyURL}`,
         html: emailTemplates.verifyEmail({ name: newUser.name, verifyURL, isWelcome: true, expiryHours: verificationExpireHours }),
       });
     } catch (err) {
@@ -335,7 +335,11 @@ const forgotPassword = async (req, res, next) => {
   try {
     const user = await User.findOne({ email: req.body.email });
     if (!user) {
-      return next(new AppError('There is no user with that email address.', 404));
+      // Return same response whether user exists or not to prevent email enumeration
+      return res.status(200).json({
+        status: 'success',
+        message: 'If an account with that email exists, a reset link has been sent.'
+      });
     }
 
     // Create reset token (expires after PASSWORD_RESET_EXPIRE_MINUTES, default 10)
@@ -352,14 +356,14 @@ const forgotPassword = async (req, res, next) => {
     try {
       await sendEmail({
         email: user.email,
-        subject: 'SpamGuard - Reset Your Password',
+        subject: 'TrueValidator - Reset Your Password',
         message,
         html: emailTemplates.passwordResetRequest({ resetURL, expiryMinutes: resetExpireMinutes }),
       });
 
       res.status(200).json({
         status: 'success',
-        message: 'Token sent to email!'
+        message: 'If an account with that email exists, a reset link has been sent.'
       });
     } catch (err) {
       user.password_reset_token = undefined;
@@ -399,7 +403,7 @@ const resetPassword = async (req, res, next) => {
     try {
       await sendEmail({
         email: user.email,
-        subject: 'SpamGuard - Password Reset Successful',
+        subject: 'TrueValidator - Password Reset Successful',
         message: 'Your password has been reset successfully.',
         html: emailTemplates.passwordResetSuccess(),
       });
@@ -486,7 +490,7 @@ const resendVerification = async (req, res, next) => {
     try {
       await sendEmail({
         email: user.email,
-        subject: 'SpamGuard - Verify Your Email Address',
+        subject: 'TrueValidator - Verify Your Email Address',
         message: `Please verify your email by visiting: ${verifyURL}`,
         html: emailTemplates.verifyEmail({ name: user.name, verifyURL, isWelcome: false, expiryHours: verificationExpireHours }),
       });

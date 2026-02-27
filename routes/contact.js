@@ -3,6 +3,8 @@ const router = express.Router();
 const ContactMessage = require('../models/ContactMessage');
 const { protect, restrictTo } = require('../middleware/auth');
 const { AppError } = require('../utils/errorHandler');
+const { validateContact, validate, stripUnknownFields } = require('../utils/validation');
+const { contactLimiter } = require('../middleware/rateLimiter');
 
 // Get all contact messages (Admin)
 router.get('/', protect, restrictTo('admin'), async (req, res, next) => {
@@ -15,7 +17,7 @@ router.get('/', protect, restrictTo('admin'), async (req, res, next) => {
 });
 
 // Submit a contact message (Public)
-router.post('/', async (req, res, next) => {
+router.post('/', contactLimiter, stripUnknownFields(['name', 'email', 'subject', 'message']), validateContact, validate, async (req, res, next) => {
     try {
         const { name, email, subject, message } = req.body;
         if (!name || !email || !message) {

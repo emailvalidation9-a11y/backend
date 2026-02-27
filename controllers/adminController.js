@@ -5,6 +5,9 @@ const ApiKey = require('../models/ApiKey');
 const AdminActivity = require('../models/AdminActivity');
 const { AppError } = require('../utils/errorHandler');
 
+// Helper: escape regex special characters to prevent ReDoS / NoSQL injection
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // ─── Helper: log admin action ─────────────────────────────────
 const logAction = async (adminId, action, targetType, targetId, targetLabel, details, req) => {
     try {
@@ -41,7 +44,7 @@ const getStats = async (req, res, next) => {
             Transaction.aggregate([{ $group: { _id: null, total: { $sum: '$amount.paid' } } }]),
             User.aggregate([{ $group: { _id: '$plan.name', count: { $sum: 1 } } }]),
             User.find().sort({ createdAt: -1 }).limit(5).select('name email plan role createdAt is_active'),
-            ValidationJob.find().sort({ createdAt: -1 }).limit(5).populate('user', 'name email'),
+            ValidationJob.find().sort({ createdAt: -1 }).limit(5).populate('user_id', 'name email'),
             User.countDocuments({ createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }),
             User.countDocuments({ createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } }),
         ]);
@@ -68,12 +71,12 @@ const getStats = async (req, res, next) => {
 const getUsers = async (req, res, next) => {
     try {
         const page = parseInt(req.query.page, 10) || 1;
-        const limit = parseInt(req.query.limit, 10) || 20;
+        const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
         const skip = (page - 1) * limit;
         const { search, role, plan, status, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
 
         const filter = {};
-        if (search) { filter.$or = [{ name: { $regex: search, $options: 'i' } }, { email: { $regex: search, $options: 'i' } }]; }
+        if (search) { const s = escapeRegex(search); filter.$or = [{ name: { $regex: s, $options: 'i' } }, { email: { $regex: s, $options: 'i' } }]; }
         if (role) filter.role = role;
         if (plan) filter['plan.name'] = plan;
         if (status === 'active') filter.is_active = true;
@@ -98,7 +101,7 @@ const exportUsers = async (req, res, next) => {
     try {
         const { search, role, plan, status } = req.query;
         const filter = {};
-        if (search) { filter.$or = [{ name: { $regex: search, $options: 'i' } }, { email: { $regex: search, $options: 'i' } }]; }
+        if (search) { const s = escapeRegex(search); filter.$or = [{ name: { $regex: s, $options: 'i' } }, { email: { $regex: s, $options: 'i' } }]; }
         if (role) filter.role = role;
         if (plan) filter['plan.name'] = plan;
         if (status === 'active') filter.is_active = true;
@@ -106,9 +109,16 @@ const exportUsers = async (req, res, next) => {
 
         const users = await User.find(filter).sort({ createdAt: -1 });
 
+        // CSV injection protection: prefix dangerous chars with a single quote
+        const csvSafe = (val) => {
+            const s = String(val ?? '').replace(/"/g, '""');
+            if (/^[=+\-@\t\r]/.test(s)) return `"'${s}"`;
+            return `"${s}"`;
+        };
+
         const header = 'ID,Name,Email,Role,Plan,Credits,Validations,Active,Joined\n';
         const rows = users.map(u =>
-            `"${u._id}","${u.name}","${u.email}","${u.role}","${u.plan.name}","${u.credits}","${u.total_validations}","${u.is_active}","${u.createdAt?.toISOString()}"`
+            [u._id, u.name, u.email, u.role, u.plan.name, u.credits, u.total_validations, u.is_active, u.createdAt?.toISOString()].map(csvSafe).join(',')
         ).join('\n');
 
         res.setHeader('Content-Type', 'text/csv');
@@ -125,7 +135,7 @@ const getUser = async (req, res, next) => {
 
         const [apiKeys, jobs, transactions] = await Promise.all([
             ApiKey.find({ user_id: user._id }).sort({ created_at: -1 }).limit(10),
-            ValidationJob.find({ user: user._id }).sort({ createdAt: -1 }).limit(10),
+            ValidationJob.find({ user_id: user._id }).sort({ createdAt: -1 }).limit(10),
             Transaction.find({ user_id: user._id }).sort({ created_at: -1 }).limit(10),
         ]);
 
@@ -296,7 +306,7 @@ const bulkOperation = async (req, res, next) => {
 const getApiKeys = async (req, res, next) => {
     try {
         const page = parseInt(req.query.page, 10) || 1;
-        const limit = parseInt(req.query.limit, 10) || 20;
+        const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
         const skip = (page - 1) * limit;
         const search = req.query.search || '';
 
@@ -315,7 +325,7 @@ const getApiKeys = async (req, res, next) => {
 
         // Filter by user search after populate
         const filtered = search
-            ? keys.filter(k => k.user_id?.name?.match(new RegExp(search, 'i')) || k.user_id?.email?.match(new RegExp(search, 'i')) || k.name?.match(new RegExp(search, 'i')))
+            ? keys.filter(k => { const re = new RegExp(escapeRegex(search), 'i'); return k.user_id?.name?.match(re) || k.user_id?.email?.match(re) || k.name?.match(re); })
             : keys;
 
         res.status(200).json({
@@ -354,7 +364,7 @@ const deleteApiKey = async (req, res, next) => {
 const getActivityLog = async (req, res, next) => {
     try {
         const page = parseInt(req.query.page, 10) || 1;
-        const limit = parseInt(req.query.limit, 10) || 30;
+        const limit = Math.min(parseInt(req.query.limit, 10) || 30, 100);
         const skip = (page - 1) * limit;
 
         const [logs, total] = await Promise.all([
@@ -377,7 +387,7 @@ const getActivityLog = async (req, res, next) => {
 const getJobs = async (req, res, next) => {
     try {
         const page = parseInt(req.query.page, 10) || 1;
-        const limit = parseInt(req.query.limit, 10) || 20;
+        const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
         const skip = (page - 1) * limit;
         const statusFilter = req.query.status || '';
 
@@ -385,7 +395,7 @@ const getJobs = async (req, res, next) => {
         if (statusFilter) filter.status = statusFilter;
 
         const [jobs, total] = await Promise.all([
-            ValidationJob.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).populate('user', 'name email'),
+            ValidationJob.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).populate('user_id', 'name email'),
             ValidationJob.countDocuments(filter),
         ]);
 
@@ -400,7 +410,7 @@ const getJobs = async (req, res, next) => {
 const getTransactions = async (req, res, next) => {
     try {
         const page = parseInt(req.query.page, 10) || 1;
-        const limit = parseInt(req.query.limit, 10) || 20;
+        const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
         const skip = (page - 1) * limit;
 
         const [transactions, total] = await Promise.all([

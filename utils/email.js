@@ -14,7 +14,7 @@ const sendEmail = async (options) => {
 
     // 2) Define the email options
     const mailOptions = {
-        from: `SpamGuard <${process.env.EMAIL_FROM}>`,
+        from: `TrueValidator <${process.env.EMAIL_FROM}>`,
         to: options.email,
         subject: options.subject,
         text: options.message,

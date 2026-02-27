@@ -109,9 +109,24 @@ const createPlan = async (req, res, next) => {
 // ─── ADMIN: Update plan ───────────────────────────────────────
 const updatePlan = async (req, res, next) => {
     try {
+        const { name, price, interval, credits, features, is_popular, is_active, type, description, cta_text, sort_order, per_credit_cost } = req.body;
+        const allowedFields = {};
+        if (name !== undefined) allowedFields.name = name;
+        if (price !== undefined) allowedFields.price = price;
+        if (interval !== undefined) allowedFields.interval = interval;
+        if (credits !== undefined) allowedFields.credits = credits;
+        if (features !== undefined) allowedFields.features = features;
+        if (is_popular !== undefined) allowedFields.is_popular = is_popular;
+        if (is_active !== undefined) allowedFields.is_active = is_active;
+        if (type !== undefined) allowedFields.type = type;
+        if (description !== undefined) allowedFields.description = description;
+        if (cta_text !== undefined) allowedFields.cta_text = cta_text;
+        if (sort_order !== undefined) allowedFields.sort_order = sort_order;
+        if (per_credit_cost !== undefined) allowedFields.per_credit_cost = per_credit_cost;
+
         const plan = await PricingPlan.findByIdAndUpdate(
             req.params.id,
-            req.body,
+            allowedFields,
             { new: true, runValidators: true }
         );
         if (!plan) return next(new AppError('Plan not found', 404));
@@ -197,7 +212,7 @@ const getCoupons = async (req, res, next) => {
     try {
         const { search, is_active } = req.query;
         const filter = {};
-        if (search) filter.code = { $regex: search, $options: 'i' };
+        if (search) { const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); filter.code = { $regex: escapeRegex(search), $options: 'i' }; }
         if (is_active !== undefined) filter.is_active = is_active === 'true';
 
         const coupons = await Coupon.find(filter)

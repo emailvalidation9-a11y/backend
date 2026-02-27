@@ -51,6 +51,10 @@ const validationJobSchema = new mongoose.Schema({
         stored_path: String,
         file_size: Number
     },
+    email_column: {
+        type: String,
+        default: 'email'
+    },
     result_file: {
         path: String,
         download_url: String,

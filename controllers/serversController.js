@@ -1,6 +1,29 @@
 const ValidationServer = require('../models/ValidationServer');
 const { AppError } = require('../utils/errorHandler');
 
+// Helper: escape regex special characters to prevent ReDoS / NoSQL injection
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// SSRF protection: validate that a URL is a safe external URL (not internal/private)
+const BLOCKED_HOSTNAMES = ['localhost', '127.0.0.1', '0.0.0.0', '[::1]', 'metadata.google.internal'];
+const PRIVATE_IP_RANGES = [
+    /^10\./, /^172\.(1[6-9]|2\d|3[01])\./, /^192\.168\./,
+    /^169\.254\./, /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./,
+    /^fd[0-9a-f]{2}:/i, /^fe80:/i,
+];
+const isSafeUrl = (urlStr) => {
+    try {
+        const parsed = new URL(urlStr);
+        if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+        const hostname = parsed.hostname.toLowerCase();
+        if (BLOCKED_HOSTNAMES.includes(hostname)) return false;
+        if (PRIVATE_IP_RANGES.some(re => re.test(hostname))) return false;
+        return true;
+    } catch {
+        return false;
+    }
+};
+
 // Get all validation servers
 const getServers = async (req, res, next) => {
     try {
@@ -11,9 +34,10 @@ const getServers = async (req, res, next) => {
 
         const filter = {};
         if (search) {
+            const s = escapeRegex(search);
             filter.$or = [
-                { name: { $regex: search, $options: 'i' } },
-                { url: { $regex: search, $options: 'i' } }
+                { name: { $regex: s, $options: 'i' } },
+                { url: { $regex: s, $options: 'i' } }
             ];
         }
         if (isActive !== undefined) {
@@ -76,6 +100,11 @@ const createServer = async (req, res, next) => {
             return next(new AppError('Name and URL are required', 400));
         }
 
+        // SSRF protection: block requests to internal/private addresses
+        if (!isSafeUrl(url)) {
+            return next(new AppError('Invalid server URL. Must be a public HTTP(S) URL.', 400));
+        }
+
         // Check if URL already exists
         const existingServer = await ValidationServer.findOne({ url });
         if (existingServer) {
@@ -118,8 +147,11 @@ const updateServer = async (req, res, next) => {
             return next(new AppError('Validation server not found', 404));
         }
 
-        // If URL is being updated, test the connection
+        // If URL is being updated, validate and test the connection
         if (url && url !== server.url) {
+            if (!isSafeUrl(url)) {
+                return next(new AppError('Invalid server URL. Must be a public HTTP(S) URL.', 400));
+            }
             try {
                 const testResponse = await fetch(`${url}/health`);
                 if (!testResponse.ok) {
@@ -184,6 +216,11 @@ const testServer = async (req, res, next) => {
             testUrl = server.url;
         } else if (!testUrl && !id) {
             return next(new AppError('Either server ID or URL must be provided', 400));
+        }
+
+        // SSRF protection: block requests to internal/private addresses
+        if (url && !isSafeUrl(testUrl)) {
+            return next(new AppError('Invalid server URL. Must be a public HTTP(S) URL.', 400));
         }
 
         const startTime = Date.now();

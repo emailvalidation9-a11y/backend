@@ -65,14 +65,17 @@ async function updateServerMetrics(serverUrl, success, responseTime) {
 
 const validateEmail = async (email, options = { verifySMTP: true }) => {
     const start = Date.now();
+    console.log('Starting email validation for:', email);
     try {
         const serverUrl = await selectValidationServer();
+        console.log('Selected validation server:', serverUrl);
         const fetchOptions = { skip_smtp: !options.verifySMTP };
 
         // Add timeout to fetch request
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
 
+        console.log('Making request to validation engine...');
         const response = await fetch(`${serverUrl}/v1/validate`, {
             method: 'POST',
             headers: {
@@ -81,6 +84,7 @@ const validateEmail = async (email, options = { verifySMTP: true }) => {
             body: JSON.stringify({ email, options: fetchOptions }),
             signal: controller.signal
         });
+        console.log('Validation engine response status:', response.status);
 
         clearTimeout(timeoutId);
 

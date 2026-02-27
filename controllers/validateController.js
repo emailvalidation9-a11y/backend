@@ -12,7 +12,7 @@ const { uploadValidationResults } = require('../utils/cloudinary');
 const getJobs = async (req, res, next) => {
     try {
         const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 10;
+        const limit = Math.min(parseInt(req.query.limit) || 10, 100);
         const skip = (page - 1) * limit;
 
         const jobs = await ValidationJob.find({ user_id: req.user.id })
@@ -104,22 +104,38 @@ const validateSingle = async (req, res, next) => {
 
 const validateBulk = async (req, res, next) => {
     try {
+        console.log('Bulk validation request received');
+        console.log('File:', req.file ? 'Present' : 'Missing');
+        console.log('User ID:', req.user.id);
+
         if (!req.file) {
+            console.error('No file provided in request');
             return next(new AppError('Please provide a file', 400));
         }
 
         const user = await User.findById(req.user.id);
+        console.log('User found:', user ? 'Yes' : 'No');
+
+        if (!user) {
+            console.error('User not found:', req.user.id);
+            return next(new AppError('User not found', 404));
+        }
+
         const webhookUrl = req.body.webhook_url;
+        const emailColumn = req.body.emailColumn || 'email'; // Get email column from request
 
         // Note: For large files, doing it entirely through buffer is okay for ~50MB.
         const ValidationServer = require('../models/ValidationServer');
 
         // Select a validation server for bulk processing
+        console.log('Looking for validation servers...');
         const servers = await ValidationServer.find({ isActive: true, isHealthy: true }).sort({ weight: -1 });
+        console.log('Found servers:', servers.length);
         let engineUrl;
 
         if (servers.length === 0) {
             engineUrl = process.env.VALIDATION_ENGINE_URL || 'http://localhost:3000';
+            console.log('No servers found, using fallback URL:', engineUrl);
         } else {
             // Use weighted round-robin selection for bulk processing
             const totalWeight = servers.reduce((sum, server) => sum + server.weight, 0);
@@ -137,6 +153,7 @@ const validateBulk = async (req, res, next) => {
             if (!engineUrl) {
                 engineUrl = servers[0].url;
             }
+            console.log('Selected engine URL:', engineUrl);
         }
 
         const form = new FormData();
@@ -144,6 +161,12 @@ const validateBulk = async (req, res, next) => {
             filename: req.file.originalname,
             contentType: req.file.mimetype,
         });
+
+        // Add email column and options to the form
+        form.append('emailColumn', emailColumn);
+        if (req.body.options) {
+            form.append('options', JSON.stringify(req.body.options));
+        }
 
         // Add timeout for bulk validation
         const controller = new AbortController();
@@ -275,8 +298,7 @@ const getJob = async (req, res, next) => {
                 try {
                     const csvResponse = await fetch(`${engineUrl}/v1/jobs/${localJob.engine_job_id}/results/csv`);
                     if (csvResponse.ok) {
-                        const csvBuffer = Buffer.from(await csvResponse.arrayBuffer());
-                        const uploadResult = await uploadValidationResults(csvBuffer, localJob._id);
+                        const uploadResult = await uploadValidationResults(csvResponse.body, localJob._id);
                         localJob.result_file = {
                             path: uploadResult.publicId,
                             download_url: uploadResult.secureUrl,
@@ -304,7 +326,7 @@ const getJob = async (req, res, next) => {
                     const downloadUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/history`;
                     await sendEmail({
                         email: user.email,
-                        subject: 'SpamGuard - Bulk Validation Job Completed',
+                        subject: 'TrueValidator - Bulk Validation Job Completed',
                         message: `Your bulk validation job has finished. It processed ${engineData.total} emails. Download results here: ${downloadUrl}`,
                         html: emailTemplates.bulkJobCompleted({ name: user.name, total: engineData.total, downloadUrl }),
                     });
@@ -429,11 +451,80 @@ const cancelJob = async (req, res, next) => {
     }
 };
 
+const getCsvHeaders = async (req, res, next) => {
+    try {
+        console.log('CSV headers request received');
+
+        if (!req.file) {
+            console.error('No file provided in CSV headers request');
+            return next(new AppError('Please provide a file', 400));
+        }
+
+        // Get validation engine URL
+        const ValidationServer = require('../models/ValidationServer');
+        const servers = await ValidationServer.find({ isActive: true, isHealthy: true }).sort({ weight: -1 });
+        let engineUrl;
+
+        if (servers.length === 0) {
+            engineUrl = process.env.VALIDATION_ENGINE_URL || 'http://localhost:3000';
+        } else {
+            // Use first server for header extraction
+            engineUrl = servers[0].url;
+        }
+
+        console.log('Using engine URL for header extraction:', engineUrl);
+
+        // Forward the file to the engine to get headers
+        const formData = new FormData();
+        formData.append('csvFile', req.file.buffer, {
+            filename: req.file.originalname,
+            contentType: req.file.mimetype,
+        });
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout for header extraction
+
+        const response = await fetch(`${engineUrl}/v1/csv/headers`, {
+            method: 'POST',
+            body: formData,
+            signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+            throw new Error(`Validation Engine CSV Headers API Error: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        res.status(200).json({
+            status: 'success',
+            data: data
+        });
+
+    } catch (error) {
+        console.error('CSV headers error:', error);
+
+        // Handle specific error types
+        if (error.name === 'AbortError') {
+            return next(new AppError('CSV header extraction timed out. Please try again with a smaller file.', 408));
+        }
+
+        if (error.message.includes('ECONNREFUSED') || error.message.includes('ENOTFOUND')) {
+            return next(new AppError('Validation service is currently unavailable. Please try again later.', 503));
+        }
+
+        next(error);
+    }
+};
+
 module.exports = {
     getJobs,
     validateSingle,
     validateBulk,
     getJob,
     getJobResults,
-    cancelJob
+    cancelJob,
+    getCsvHeaders
 };

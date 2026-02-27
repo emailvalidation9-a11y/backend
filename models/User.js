@@ -48,13 +48,16 @@ const userSchema = new mongoose.Schema({
     enum: ['user', 'admin'],
     default: 'user'
   },
-  stripe: {
-    subscription_id: String,
+  razorpay: {
+    customerId: String,
+    subscriptionId: String,
     status: {
       type: String,
       enum: ['active', 'inactive', 'canceled', 'past_due'],
       default: 'inactive'
-    }
+    },
+    currentPeriodEnd: Date,
+    planId: String
   },
   email_verified: {
     type: Boolean,
