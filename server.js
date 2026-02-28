@@ -31,9 +31,12 @@ const PORT = process.env.PORT || 5000;
 // Security and base middleware
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({
-  origin: function (origin, callback) {
-    callback(null, true);
-  },
+  origin: [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'https://truevalidator.dev',
+    'https://www.truevalidator.dev'
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'X-Request-Id']
