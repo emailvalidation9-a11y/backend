@@ -1,17 +1,42 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
+
   "builds": [
     {
       "src": "server.js",
       "use": "@vercel/node"
     }
   ],
+
   "routes": [
-    { "src": "/api/(.*)", "dest": "server.js" },
-    { "src": "/(.*)", "dest": "server.js" }
+    {
+      "src": "/api/(.*)",
+      "dest": "server.js"
+    }
   ],
-  "env": {
-    "NODE_ENV": "production"
-  }
+
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "https://truevalidator.dev"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Content-Type, Authorization"
+        },
+        {
+          "key": "Access-Control-Allow-Credentials",
+          "value": "true"
+        }
+      ]
+    }
+  ]
 }
