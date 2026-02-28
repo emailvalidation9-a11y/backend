@@ -31,7 +31,12 @@ const PORT = process.env.PORT || 5000;
 // Security and base middleware
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({
-  origin: [process.env.FRONTEND_URL || 'http://localhost:5173', 'http://localhost:5174'],
+  origin: [
+    process.env.FRONTEND_URL || 'http://localhost:5173',
+    'http://localhost:5174',
+    'https://truevalidator.dev',
+    'https://www.truevalidator.dev'
+  ],
   credentials: true,
 }));
 app.use(requestId);
