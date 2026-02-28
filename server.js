@@ -31,14 +31,14 @@ const PORT = process.env.PORT || 5000;
 // Security and base middleware
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({
-  origin: [
-    process.env.FRONTEND_URL || 'http://localhost:5173',
-    'http://localhost:5174',
-    'https://truevalidator.dev',
-    'https://www.truevalidator.dev'
-  ],
+  origin: function (origin, callback) {
+    callback(null, true);
+  },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'X-Request-Id']
 }));
+app.options('*', cors());
 app.use(requestId);
 app.use(express.json({ limit: '1mb' }));
 
